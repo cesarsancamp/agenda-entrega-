@@ -1,10 +1,10 @@
 {
-  "business_name": "Mi Negocio de Courier",
+  "business_name": "Agenda de entrega Dboutique",
   "slot_duration_minutes": 30,
   "days_ahead": 14,
   "event_types": {
     "recojo": {
-      "label": "Recojo en Real Plaza",
+      "label": "Recojo en Real Plaza Salaverry",
       "duration_minutes": 30,
       "capacity_per_slot": 3,
       "requires_address": false,
@@ -16,7 +16,7 @@
       }
     },
     "envio": {
-      "label": "Envío con motorizado",
+      "label": "Envío con motorizado o recojo en oficina",
       "duration_minutes": 30,
       "capacity_per_slot": 1,
       "requires_address": true,
