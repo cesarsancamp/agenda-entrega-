@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ config.business_name }} — Agendar</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>{{ config.business_name }}</h1>
+  <p class="subtitle">Elige qué necesitas y agenda tu horario.</p>
+
+  <div class="card">
+    <label>1. ¿Qué necesitas?</label>
+    <div class="event-options" id="eventOptions">
+      {% for id, ev in config.event_types.items() %}
+      <div class="event-option" data-id="{{ id }}" data-requires-address="{{ 'true' if ev.requires_address else 'false' }}">
+        <div class="label">{{ ev.label }}</div>
+        <div class="desc">{{ ev.description }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <label for="dateInput">2. Elige la fecha</label>
+    <input type="date" id="dateInput" disabled>
+
+    <label>3. Elige la hora</label>
+    <div class="slots" id="slotsContainer"></div>
+    <div class="hint" id="slotsHint">Selecciona un servicio y una fecha para ver horarios disponibles.</div>
+
+    <div id="contactFields" style="display:none;">
+      <label for="nameInput">Nombre completo</label>
+      <input type="text" id="nameInput" placeholder="Tu nombre">
+
+      <label for="phoneInput">Teléfono / WhatsApp</label>
+      <input type="tel" id="phoneInput" placeholder="9xxxxxxxx">
+
+      <div id="addressField" style="display:none;">
+        <label for="addressInput">Dirección de entrega</label>
+        <textarea id="addressInput" rows="2" placeholder="Dirección completa, referencia"></textarea>
+      </div>
+    </div>
+
+    <button class="submit" id="submitBtn" disabled>Confirmar reserva</button>
+    <div id="msg"></div>
+  </div>
+</div>
+
+<script>
+const config = {{ config | tojson }};
+let selectedEvent = null;
+let selectedDate = null;
+let selectedTime = null;
+
+const eventOptions = document.querySelectorAll('.event-option');
+const dateInput = document.getElementById('dateInput');
+const slotsContainer = document.getElementById('slotsContainer');
+const slotsHint = document.getElementById('slotsHint');
+const contactFields = document.getElementById('contactFields');
+const addressField = document.getElementById('addressField');
+const submitBtn = document.getElementById('submitBtn');
+const msg = document.getElementById('msg');
+
+const today = new Date();
+const minDate = today.toISOString().split('T')[0];
+const maxDateObj = new Date();
+maxDateObj.setDate(maxDateObj.getDate() + (config.days_ahead || 14));
+dateInput.min = minDate;
+dateInput.max = maxDateObj.toISOString().split('T')[0];
+
+eventOptions.forEach(opt => {
+  opt.addEventListener('click', () => {
+    eventOptions.forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    selectedEvent = opt.dataset.id;
+    dateInput.disabled = false;
+    addressField.style.display = opt.dataset.requiresAddress === 'true' ? 'block' : 'none';
+    selectedTime = null;
+    resetSubmit();
+    if (dateInput.value) loadSlots();
+  });
+});
+
+dateInput.addEventListener('change', () => {
+  selectedDate = dateInput.value;
+  selectedTime = null;
+  resetSubmit();
+  if (selectedEvent && selectedDate) loadSlots();
+});
+
+function loadSlots() {
+  slotsContainer.innerHTML = '';
+  slotsHint.textContent = 'Cargando horarios...';
+  fetch(`/api/slots?event_type=${selectedEvent}&date=${selectedDate}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        slotsHint.textContent = data.error;
+        return;
+      }
+      if (data.slots.length === 0) {
+        slotsHint.textContent = 'No hay horarios disponibles ese día para este servicio. Prueba otra fecha.';
+        return;
+      }
+      slotsHint.textContent = '';
+      data.slots.forEach(s => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'slot-btn';
+        btn.textContent = s;
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selectedTime = s;
+          contactFields.style.display = 'block';
+          resetSubmit();
+        });
+        slotsContainer.appendChild(btn);
+      });
+    });
+}
+
+function resetSubmit() {
+  msg.innerHTML = '';
+  submitBtn.disabled = !(selectedEvent && selectedDate && selectedTime);
+}
+
+document.getElementById('nameInput').addEventListener('input', resetSubmit);
+document.getElementById('phoneInput').addEventListener('input', resetSubmit);
+
+submitBtn.addEventListener('click', () => {
+  const name = document.getElementById('nameInput').value.trim();
+  const phone = document.getElementById('phoneInput').value.trim();
+  const address = document.getElementById('addressInput').value.trim();
+
+  if (!name || !phone) {
+    msg.innerHTML = '<div class="msg error">Completa nombre y teléfono.</div>';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  fetch('/api/book', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      event_type: selectedEvent,
+      date: selectedDate,
+      time: selectedTime,
+      name, phone, address
+    })
+  })
+    .then(r => r.json().then(data => ({status: r.status, data})))
+    .then(({status, data}) => {
+      if (status !== 200) {
+        msg.innerHTML = `<div class="msg error">${data.error}</div>`;
+        submitBtn.disabled = false;
+        if (selectedEvent && selectedDate) loadSlots();
+        return;
+      }
+      msg.innerHTML = '<div class="msg success">¡Reserva confirmada! Te esperamos en el horario elegido.</div>';
+      contactFields.style.display = 'none';
+      slotsContainer.innerHTML = '';
+      slotsHint.textContent = '';
+    });
+});
+</script>
+</body>
+</html>

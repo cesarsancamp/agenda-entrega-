@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de reservas — {{ config.business_name }}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container" style="max-width: 800px;">
+  <h1>Panel de reservas</h1>
+  <p class="subtitle">{{ bookings|length }} reserva(s) registrada(s). <a href="/admin">Actualizar</a> · <a href="/">Ir al formulario público</a></p>
+
+  <div class="card">
+    {% if bookings %}
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Hora</th>
+          <th>Servicio</th>
+          <th>Cliente</th>
+          <th>Teléfono</th>
+          <th>Dirección</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="bookingsBody">
+        {% for b in bookings %}
+        <tr id="row-{{ b.id }}">
+          <td>{{ b.booking_date }}</td>
+          <td>{{ b.booking_time }}</td>
+          <td><span class="tag {{ b.event_type }}">{{ config.event_types[b.event_type].label }}</span></td>
+          <td>{{ b.customer_name }}</td>
+          <td>{{ b.phone }}</td>
+          <td>{{ b.address or '—' }}</td>
+          <td><button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Todavía no hay reservas.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function cancelBooking(id) {
+  if (!confirm('¿Cancelar esta reserva?')) return;
+  fetch(`/admin/cancel/${id}`, {method: 'POST'})
+    .then(r => r.json())
+    .then(() => {
+      document.getElementById(`row-${id}`).remove();
+    });
+}
+</script>
+</body>
+</html>
