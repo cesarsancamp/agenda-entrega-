@@ -169,3 +169,10 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 }
 
 .empty { color: var(--muted); padding: 20px; text-align: center; }
+
+
+.logo {
+  display: block;
+  max-width: 110px;
+  margin: 0 auto 12px;
+}
