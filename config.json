@@ -1,11 +1,11 @@
 {
   "business_name": "Agenda de entrega Dboutique",
-  "slot_duration_minutes": 30,
-  "days_ahead": 14,
+  "slot_duration_minutes": 15,
+  "days_ahead": 7,
   "event_types": {
     "recojo": {
       "label": "Recojo en Real Plaza Salaverry",
-      "duration_minutes": 30,
+      "duration_minutes": 15,
       "capacity_per_slot": 3,
       "requires_address": false,
       "description": "El cliente recoge su pedido en el punto Real Plaza.",
@@ -17,8 +17,8 @@
     },
     "envio": {
       "label": "Envío con motorizado o recojo en oficina",
-      "duration_minutes": 30,
-      "capacity_per_slot": 1,
+      "duration_minutes": 15,
+      "capacity_per_slot": 3,
       "requires_address": true,
       "description": "Un motorizado lleva el pedido a la dirección indicada.",
       "business_hours": {
