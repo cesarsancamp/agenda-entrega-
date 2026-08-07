@@ -2,27 +2,18 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-
 from flask import Flask, render_template, request, jsonify
-
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "agenda.db"
 CONFIG_PATH = BASE_DIR / "config.json"
-
 app = Flask(__name__)
-
-
 def load_config():
     with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
-
-
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
-
-
 def init_db():
     conn = get_db()
     conn.execute(
@@ -41,8 +32,6 @@ def init_db():
     )
     conn.commit()
     conn.close()
-
-
 def generate_slots(config, event_type_id, target_date):
     """All grid slots (HH:MM) within THIS event type's business hours for a given date,
     excluding past times. Each event type has its own independent schedule."""
@@ -51,14 +40,11 @@ def generate_slots(config, event_type_id, target_date):
     hours = event_type.get("business_hours", {}).get(weekday)
     if not hours:
         return []
-
     step = config["slot_duration_minutes"]
     start_h, start_m = map(int, hours["start"].split(":"))
     end_h, end_m = map(int, hours["end"].split(":"))
-
     start_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=start_h, minute=start_m)
     end_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=end_h, minute=end_m)
-
     now = datetime.now()
     slots = []
     cur = start_dt
@@ -67,81 +53,64 @@ def generate_slots(config, event_type_id, target_date):
             slots.append(cur.strftime("%H:%M"))
         cur += timedelta(minutes=step)
     return slots
-
-
 def get_slot_counts(conn, event_type_id, date_str):
     rows = conn.execute(
         "SELECT booking_time, COUNT(*) as c FROM bookings WHERE event_type=? AND booking_date=? GROUP BY booking_time",
         (event_type_id, date_str),
     ).fetchall()
     return {r["booking_time"]: r["c"] for r in rows}
-
-
 @app.route("/")
 def index():
     config = load_config()
     return render_template("index.html", config=config)
-
-
 @app.route("/api/slots")
 def api_slots():
     config = load_config()
     event_type_id = request.args.get("event_type")
     date_str = request.args.get("date")
-
     if event_type_id not in config["event_types"]:
         return jsonify({"error": "Tipo de evento inválido"}), 400
     try:
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return jsonify({"error": "Fecha inválida"}), 400
-
     all_slots = generate_slots(config, event_type_id, target_date)
     conn = get_db()
     counts = get_slot_counts(conn, event_type_id, date_str)
     conn.close()
-
     capacity = config["event_types"][event_type_id]["capacity_per_slot"]
     available = [s for s in all_slots if counts.get(s, 0) < capacity]
     return jsonify({"slots": available})
-
-
 @app.route("/api/book", methods=["POST"])
 def api_book():
     config = load_config()
     data = request.get_json(force=True) or {}
-
     event_type_id = data.get("event_type")
     name = (data.get("name") or "").strip()
     phone = (data.get("phone") or "").strip()
     address = (data.get("address") or "").strip()
     date_str = data.get("date")
     time_str = data.get("time")
-
     if event_type_id not in config["event_types"]:
         return jsonify({"error": "Tipo de evento inválido"}), 400
     if not name or not phone or not date_str or not time_str:
         return jsonify({"error": "Faltan datos obligatorios"}), 400
     if config["event_types"][event_type_id]["requires_address"] and not address:
         return jsonify({"error": "La dirección es obligatoria para envío con motorizado"}), 400
-
     # Re-validate the slot is still within this event type's business hours and not full
     try:
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
         return jsonify({"error": "Fecha inválida"}), 400
-
     valid_slots = generate_slots(config, event_type_id, target_date)
     if time_str not in valid_slots:
         return jsonify({"error": "Ese horario no está disponible para este servicio"}), 400
-
     conn = get_db()
     counts = get_slot_counts(conn, event_type_id, date_str)
     capacity = config["event_types"][event_type_id]["capacity_per_slot"]
     if counts.get(time_str, 0) >= capacity:
         conn.close()
         return jsonify({"error": "Ese horario ya no está disponible, elige otro"}), 409
-
     conn.execute(
         """
         INSERT INTO bookings (event_type, customer_name, phone, address, booking_date, booking_time, created_at)
@@ -152,19 +121,20 @@ def api_book():
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
-
-
 @app.route("/admin")
 def admin():
     config = load_config()
+    today_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM bookings ORDER BY booking_date, booking_time"
+        """
+        SELECT * FROM bookings
+        ORDER BY (booking_date < ?), booking_date, booking_time
+        """,
+        (today_str,),
     ).fetchall()
     conn.close()
     return render_template("admin.html", bookings=rows, config=config)
-
-
 @app.route("/admin/cancel/<int:booking_id>", methods=["POST"])
 def cancel_booking(booking_id):
     conn = get_db()
@@ -172,9 +142,8 @@ def cancel_booking(booking_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
-
-
 init_db()  # ensures the table exists both for `python3 app.py` and for gunicorn in production
-
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
+
+
