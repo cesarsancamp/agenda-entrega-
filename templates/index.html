@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <img src="/static/logo_upscaled.png" alt="{{ config.business_name }}" class="logo_upscaled">
+  <img src="/static/logo.png" alt="{{ config.business_name }}" class="logo">
   <h1>{{ config.business_name }}</h1>
   <p class="subtitle">Elige qué necesitas y agenda tu horario.</p>
 
@@ -119,6 +119,9 @@ function loadSlots() {
         });
         slotsContainer.appendChild(btn);
       });
+    })
+    .catch(() => {
+      slotsHint.textContent = 'No se pudo cargar los horarios. Intenta de nuevo.';
     });
 }
 
@@ -141,6 +144,8 @@ submitBtn.addEventListener('click', () => {
   }
 
   submitBtn.disabled = true;
+  msg.innerHTML = '';
+
   fetch('/api/book', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -151,7 +156,15 @@ submitBtn.addEventListener('click', () => {
       name, phone, address
     })
   })
-    .then(r => r.json().then(data => ({status: r.status, data})))
+    .then(async (r) => {
+      let data;
+      try {
+        data = await r.json();
+      } catch (e) {
+        data = { error: 'El servidor respondió con un error inesperado. Intenta de nuevo en unos segundos.' };
+      }
+      return { status: r.status, data };
+    })
     .then(({status, data}) => {
       if (status !== 200) {
         msg.innerHTML = `<div class="msg error">${data.error}</div>`;
@@ -163,6 +176,10 @@ submitBtn.addEventListener('click', () => {
       contactFields.style.display = 'none';
       slotsContainer.innerHTML = '';
       slotsHint.textContent = '';
+    })
+    .catch(() => {
+      msg.innerHTML = '<div class="msg error">No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.</div>';
+      submitBtn.disabled = false;
     });
 });
 </script>
