@@ -170,7 +170,6 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 
 .empty { color: var(--muted); padding: 20px; text-align: center; }
 
-
 .logo_upscaled {
   display: block;
   max-width: 110px;
