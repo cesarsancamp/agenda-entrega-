@@ -1,6 +1,9 @@
 import json
+import os
+import smtplib
 import sqlite3
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 BASE_DIR = Path(__file__).parent
@@ -59,6 +62,36 @@ def get_slot_counts(conn, event_type_id, date_str):
         (event_type_id, date_str),
     ).fetchall()
     return {r["booking_time"]: r["c"] for r in rows}
+def send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str):
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    notify_email = os.environ.get("NOTIFY_EMAIL", smtp_user)
+
+    if not smtp_user or not smtp_password:
+        return  # notificaciones no configuradas todavía, no hace nada
+
+    label = config["event_types"][event_type_id]["label"]
+    lines = [
+        f"Nueva reserva: {label}",
+        f"Fecha: {date_str}",
+        f"Hora: {time_str}",
+        f"Cliente: {name}",
+        f"Teléfono: {phone}",
+    ]
+    if address:
+        lines.append(f"Dirección: {address}")
+
+    msg = MIMEText("\n".join(lines))
+    msg["Subject"] = f"Nueva reserva - {label}"
+    msg["From"] = smtp_user
+    msg["To"] = notify_email
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, [notify_email], msg.as_string())
+    except Exception as e:
+        print("No se pudo enviar la notificación:", e)
 @app.route("/")
 def index():
     config = load_config()
@@ -120,6 +153,9 @@ def api_book():
     )
     conn.commit()
     conn.close()
+
+    send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str)
+
     return jsonify({"ok": True})
 @app.route("/admin")
 def admin():
