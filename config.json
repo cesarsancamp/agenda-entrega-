@@ -21,12 +21,12 @@
       "requires_address": false,
       "description": "El cliente recoge su pedido directamente en nuestra oficina ubicada en Calle 3.104 Magdalena del mar.",
       "business_hours": {
-        "5": {"start": "09:00", "end": "15:00"},
         "0": {"start": "09:00", "end": "15:00"},
         "1": {"start": "09:00", "end": "15:00"},
         "2": {"start": "09:00", "end": "15:00"},
         "3": {"start": "09:00", "end": "15:00"},
-        "4": {"start": "09:00", "end": "15:00"}
+        "4": {"start": "09:00", "end": "15:00"},
+        "5": {"start": "09:00", "end": "15:00"}
       }
     },
     "envio": {
@@ -36,12 +36,12 @@
       "requires_address": true,
       "description": "Un motorizado lleva el pedido a la dirección indicada o usted puede enviar su motorizado a la direccion Calle 3. 104 Magdalena del mar.",
       "business_hours": {
-        "5": {"start": "09:00", "end": "15:00"},
-        "0": {"start": "09:00", "end": "15:00"},
-        "1": {"start": "09:00", "end": "15:00"},
-        "2": {"start": "09:00", "end": "15:00"},
-        "3": {"start": "09:00", "end": "15:00"},
-        "4": {"start": "09:00", "end": "15:00"}
+        "0": {"start": "09:00", "end": "18:00"},
+        "1": {"start": "09:00", "end": "18:00"},
+        "2": {"start": "09:00", "end": "18:00"},
+        "3": {"start": "09:00", "end": "18:00"},
+        "4": {"start": "09:00", "end": "18:00"},
+        "5": {"start": "09:00", "end": "18:00"}
       }
     }
   }
