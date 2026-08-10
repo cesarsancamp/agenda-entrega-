@@ -1,15 +1,32 @@
 import json
 import os
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import psycopg2
+import psycopg2.extras
 import requests
 from flask import Flask, render_template, request, jsonify
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "agenda.db"
 CONFIG_PATH = BASE_DIR / "config.json"
+
+# Render's servers run in UTC, but the business hours in config.json are Peru local time.
+# Without this, "now" gets compared in the wrong timezone and today's slots can look
+# like they've already passed (or vanish entirely) once it's evening in Peru.
+BUSINESS_TZ = ZoneInfo("America/Lima")
+
+
+def business_now():
+    """Current wall-clock time in Peru, as a naive datetime (matches the naive
+    datetimes built from config.json's business_hours)."""
+    return datetime.now(BUSINESS_TZ).replace(tzinfo=None)
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    # psycopg2 wants the "postgresql://" scheme; some providers hand out "postgres://"
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app = Flask(__name__)
 
@@ -20,17 +37,22 @@ def load_config():
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "Falta la variable de entorno DATABASE_URL. Configúrala en Render con la "
+            "cadena de conexión de tu base de datos Neon."
+        )
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
 def init_db():
     conn = get_db()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """
         CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             event_type TEXT NOT NULL,
             customer_name TEXT NOT NULL,
             phone TEXT NOT NULL,
@@ -42,6 +64,7 @@ def init_db():
         """
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -61,7 +84,7 @@ def generate_slots(config, event_type_id, target_date):
     start_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=start_h, minute=start_m)
     end_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=end_h, minute=end_m)
 
-    now = datetime.now()
+    now = business_now()
     slots = []
     cur = start_dt
     while cur < end_dt:
@@ -72,10 +95,13 @@ def generate_slots(config, event_type_id, target_date):
 
 
 def get_slot_counts(conn, event_type_id, date_str):
-    rows = conn.execute(
-        "SELECT booking_time, COUNT(*) as c FROM bookings WHERE event_type=? AND booking_date=? GROUP BY booking_time",
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT booking_time, COUNT(*) as c FROM bookings WHERE event_type=%s AND booking_date=%s GROUP BY booking_time",
         (event_type_id, date_str),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
+    cur.close()
     return {r["booking_time"]: r["c"] for r in rows}
 
 
@@ -182,14 +208,16 @@ def api_book():
         conn.close()
         return jsonify({"error": "Ese horario ya no está disponible, elige otro"}), 409
 
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """
         INSERT INTO bookings (event_type, customer_name, phone, address, booking_date, booking_time, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (event_type_id, name, phone, address, date_str, time_str, datetime.now().isoformat()),
+        (event_type_id, name, phone, address, date_str, time_str, business_now().isoformat()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
     send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str)
@@ -200,15 +228,18 @@ def api_book():
 @app.route("/admin")
 def admin():
     config = load_config()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = business_now().strftime("%Y-%m-%d")
     conn = get_db()
-    rows = conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """
         SELECT * FROM bookings
-        ORDER BY (booking_date < ?), booking_date, booking_time
+        ORDER BY (booking_date < %s), booking_date, booking_time
         """,
         (today_str,),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     return render_template("admin.html", bookings=rows, config=config)
 
@@ -216,8 +247,10 @@ def admin():
 @app.route("/admin/cancel/<int:booking_id>", methods=["POST"])
 def cancel_booking(booking_id):
     conn = get_db()
-    conn.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM bookings WHERE id=%s", (booking_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"ok": True})
 
@@ -226,4 +259,3 @@ init_db()  # ensures the table exists both for `python3 app.py` and for gunicorn
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
-
