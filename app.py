@@ -1,15 +1,15 @@
 import json
 import os
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import psycopg2
-import psycopg2.extras
 import requests
 from flask import Flask, render_template, request, jsonify
 
 BASE_DIR = Path(__file__).parent
+DB_PATH = BASE_DIR / "agenda.db"
 CONFIG_PATH = BASE_DIR / "config.json"
 
 # Render's servers run in UTC, but the business hours in config.json are Peru local time.
@@ -23,10 +23,6 @@ def business_now():
     datetimes built from config.json's business_hours)."""
     return datetime.now(BUSINESS_TZ).replace(tzinfo=None)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-if DATABASE_URL.startswith("postgres://"):
-    # psycopg2 wants the "postgresql://" scheme; some providers hand out "postgres://"
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app = Flask(__name__)
 
@@ -37,22 +33,17 @@ def load_config():
 
 
 def get_db():
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "Falta la variable de entorno DATABASE_URL. Configúrala en Render con la "
-            "cadena de conexión de tu base de datos Neon."
-        )
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bookings (
-            id SERIAL PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL,
             customer_name TEXT NOT NULL,
             phone TEXT NOT NULL,
@@ -64,7 +55,6 @@ def init_db():
         """
     )
     conn.commit()
-    cur.close()
     conn.close()
 
 
@@ -95,13 +85,10 @@ def generate_slots(config, event_type_id, target_date):
 
 
 def get_slot_counts(conn, event_type_id, date_str):
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT booking_time, COUNT(*) as c FROM bookings WHERE event_type=%s AND booking_date=%s GROUP BY booking_time",
+    rows = conn.execute(
+        "SELECT booking_time, COUNT(*) as c FROM bookings WHERE event_type=? AND booking_date=? GROUP BY booking_time",
         (event_type_id, date_str),
-    )
-    rows = cur.fetchall()
-    cur.close()
+    ).fetchall()
     return {r["booking_time"]: r["c"] for r in rows}
 
 
@@ -208,16 +195,14 @@ def api_book():
         conn.close()
         return jsonify({"error": "Ese horario ya no está disponible, elige otro"}), 409
 
-    cur = conn.cursor()
-    cur.execute(
+    conn.execute(
         """
         INSERT INTO bookings (event_type, customer_name, phone, address, booking_date, booking_time, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (event_type_id, name, phone, address, date_str, time_str, business_now().isoformat()),
     )
     conn.commit()
-    cur.close()
     conn.close()
 
     send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str)
@@ -230,16 +215,13 @@ def admin():
     config = load_config()
     today_str = business_now().strftime("%Y-%m-%d")
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
+    rows = conn.execute(
         """
         SELECT * FROM bookings
-        ORDER BY (booking_date < %s), booking_date, booking_time
+        ORDER BY (booking_date < ?), booking_date, booking_time
         """,
         (today_str,),
-    )
-    rows = cur.fetchall()
-    cur.close()
+    ).fetchall()
     conn.close()
     return render_template("admin.html", bookings=rows, config=config)
 
@@ -247,10 +229,8 @@ def admin():
 @app.route("/admin/cancel/<int:booking_id>", methods=["POST"])
 def cancel_booking(booking_id):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM bookings WHERE id=%s", (booking_id,))
+    conn.execute("DELETE FROM bookings WHERE id=?", (booking_id,))
     conn.commit()
-    cur.close()
     conn.close()
     return jsonify({"ok": True})
 
