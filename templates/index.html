@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <img src="/static/logo_upscaled.png" alt="{{ config.business_name }}" class="logo_upscaled">
+  <img src="/static/logo_upscaled.png" alt="{{ config.business_name }}" class="logo">
   <h1>{{ config.business_name }}</h1>
   <p class="subtitle">Elige qué necesitas y agenda tu horario.</p>
 
@@ -63,12 +63,21 @@ const addressField = document.getElementById('addressField');
 const submitBtn = document.getElementById('submitBtn');
 const msg = document.getElementById('msg');
 
+// Usamos la fecha LOCAL del navegador del cliente, no toISOString() (que convierte a UTC
+// y por las noches en Perú "adelanta" un día, bloqueando la reserva para hoy).
+function toLocalISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const today = new Date();
-const minDate = today.toISOString().split('T')[0];
+const minDate = toLocalISODate(today);
 const maxDateObj = new Date();
 maxDateObj.setDate(maxDateObj.getDate() + (config.days_ahead || 14));
 dateInput.min = minDate;
-dateInput.max = maxDateObj.toISOString().split('T')[0];
+dateInput.max = toLocalISODate(maxDateObj);
 
 eventOptions.forEach(opt => {
   opt.addEventListener('click', () => {
