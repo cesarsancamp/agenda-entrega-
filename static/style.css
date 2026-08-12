@@ -176,3 +176,13 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
   max-width: 110px;
   margin: 0 auto 12px;
 }
+.deliver-btn {
+  border: 1px solid var(--success);
+  color: var(--success);
+  background: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 6px;
+}
