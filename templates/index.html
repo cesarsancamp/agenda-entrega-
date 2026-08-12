@@ -3,61 +3,264 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agendar — {{ config.business_name }}</title>
+<title>{{ config.business_name }} — Agendar</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="container" style="max-width: 1000px;">
-  <h1>Panel de reservas</h1>
-  <p class="subtitle">{{ bookings|length }} reserva(s) registrada(s). <a href="/admin">Actualizar</a> · <a href="/">Ir al formulario público</a></p>
+<div class="container">
+  <img src="/static/logo_upscaled.png" alt="{{ config.business_name }}" class="logo">
+  <h1>{{ config.business_name }}</h1>
+  <p class="subtitle">Elige qué necesitas y agenda tu horario.</p>
 
   <div class="card">
-    {% if bookings %}
-    <table>
-      <thead>
-        <tr>
-          <th>Fecha</th>
-          <th>Hora</th>
-          <th>Servicio</th>
-          <th>Cliente</th>
-          <th>Teléfono</th>
-          <th>Dirección</th>
-          <th>Agencia</th>
-          <th>Destino</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="bookingsBody">
-        {% for b in bookings %}
-        <tr id="row-{{ b.id }}">
-          <td>{{ b.booking_date }}</td>
-          <td>{{ b.booking_time or '—' }}</td>
-          <td><span class="tag {{ b.event_type }}">{{ config.event_types[b.event_type].label }}</span></td>
-          <td>{{ b.customer_name }}</td>
-          <td>{{ b.phone }}</td>
-          <td>{{ b.address or '—' }}</td>
-          <td>{{ b.agency or '—' }}</td>
-          <td>{{ b.destination or '—' }}</td>
-          <td><button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <div class="empty">Todavía no hay reservas.</div>
-    {% endif %}
+    <label>1. ¿Qué necesitas?</label>
+    <div class="event-options" id="eventOptions">
+      {% for id, ev in config.event_types.items() %}
+      <div class="event-option" data-id="{{ id }}" data-requires-address="{{ 'true' if ev.requires_address else 'false' }}">
+        <div class="label">{{ ev.label }}</div>
+        <div class="desc">{{ ev.description }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="scheduleSection">
+      <label for="dateInput">2. Elige la fecha</label>
+      <input type="date" id="dateInput" disabled>
+
+      <label>3. Elige la hora</label>
+      <div class="slots" id="slotsContainer"></div>
+      <div class="hint" id="slotsHint">Selecciona un servicio y una fecha para ver horarios disponibles.</div>
+    </div>
+
+    <div id="provinciaSection" style="display:none;">
+      <label>2. Elige la agencia</label>
+      <div class="event-options" id="agencyOptions"></div>
+
+      <label for="destinationInput">3. ¿Hacia dónde va el envío?</label>
+      <textarea id="destinationInput" rows="2" placeholder="Ciudad/provincia y agencia específica (ej. Olva Trujillo, oficina Jr. Los Pinos 123)"></textarea>
+    </div>
+
+    <div id="contactFields" style="display:none;">
+      <label for="nameInput">Nombre completo</label>
+      <input type="text" id="nameInput" placeholder="Tu nombre">
+
+      <label for="phoneInput">Teléfono / WhatsApp</label>
+      <input type="tel" id="phoneInput" placeholder="9xxxxxxxx">
+
+      <div id="addressField" style="display:none;">
+        <label for="addressInput">Dirección de entrega</label>
+        <textarea id="addressInput" rows="2" placeholder="Dirección completa, referencia"></textarea>
+      </div>
+    </div>
+
+    <button class="submit" id="submitBtn" disabled>Confirmar reserva</button>
+    <div id="msg"></div>
   </div>
 </div>
 
 <script>
-function cancelBooking(id) {
-  if (!confirm('¿Cancelar esta reserva?')) return;
-  fetch(`/admin/cancel/${id}`, {method: 'POST'})
+const config = {{ config | tojson }};
+let selectedEvent = null;
+let selectedDate = null;
+let selectedTime = null;
+let selectedAgency = null;
+
+const eventOptions = document.querySelectorAll('.event-option');
+const dateInput = document.getElementById('dateInput');
+const scheduleSection = document.getElementById('scheduleSection');
+const provinciaSection = document.getElementById('provinciaSection');
+const agencyOptions = document.getElementById('agencyOptions');
+const destinationInput = document.getElementById('destinationInput');
+const slotsContainer = document.getElementById('slotsContainer');
+const slotsHint = document.getElementById('slotsHint');
+const contactFields = document.getElementById('contactFields');
+const addressField = document.getElementById('addressField');
+const submitBtn = document.getElementById('submitBtn');
+const msg = document.getElementById('msg');
+
+// Usamos la fecha LOCAL del navegador del cliente, no toISOString() (que convierte a UTC
+// y por las noches en Perú "adelanta" un día, bloqueando la reserva para hoy).
+function toLocalISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const today = new Date();
+const minDate = toLocalISODate(today);
+const maxDateObj = new Date();
+maxDateObj.setDate(maxDateObj.getDate() + (config.days_ahead || 14));
+dateInput.min = minDate;
+dateInput.max = toLocalISODate(maxDateObj);
+
+eventOptions.forEach(opt => {
+  opt.addEventListener('click', () => {
+    eventOptions.forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    selectedEvent = opt.dataset.id;
+    const ev = config.event_types[selectedEvent];
+
+    selectedTime = null;
+    selectedDate = null;
+    selectedAgency = null;
+    destinationInput.value = '';
+    dateInput.value = '';
+    slotsContainer.innerHTML = '';
+    addressField.style.display = opt.dataset.requiresAddress === 'true' ? 'block' : 'none';
+
+    if (ev.no_schedule) {
+      scheduleSection.style.display = 'none';
+      provinciaSection.style.display = 'block';
+      dateInput.disabled = true;
+
+      agencyOptions.innerHTML = '';
+      (ev.agencies || []).forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'event-option';
+        div.textContent = a;
+        div.addEventListener('click', () => {
+          document.querySelectorAll('#agencyOptions .event-option').forEach(o => o.classList.remove('selected'));
+          div.classList.add('selected');
+          selectedAgency = a;
+          resetSubmit();
+        });
+        agencyOptions.appendChild(div);
+      });
+
+      contactFields.style.display = 'block';
+    } else {
+      scheduleSection.style.display = 'block';
+      provinciaSection.style.display = 'none';
+      dateInput.disabled = false;
+      contactFields.style.display = 'none';
+    }
+    resetSubmit();
+  });
+});
+
+dateInput.addEventListener('change', () => {
+  selectedDate = dateInput.value;
+  selectedTime = null;
+  resetSubmit();
+  if (selectedEvent && selectedDate) loadSlots();
+});
+
+function loadSlots() {
+  slotsContainer.innerHTML = '';
+  slotsHint.textContent = 'Cargando horarios...';
+  fetch(`/api/slots?event_type=${selectedEvent}&date=${selectedDate}`)
     .then(r => r.json())
-    .then(() => {
-      document.getElementById(`row-${id}`).remove();
+    .then(data => {
+      if (data.error) {
+        slotsHint.textContent = data.error;
+        return;
+      }
+      if (data.slots.length === 0) {
+        slotsHint.textContent = 'No hay horarios disponibles ese día para este servicio. Prueba otra fecha.';
+        return;
+      }
+      slotsHint.textContent = '';
+      data.slots.forEach(s => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'slot-btn';
+        btn.textContent = s;
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          selectedTime = s;
+          contactFields.style.display = 'block';
+          resetSubmit();
+        });
+        slotsContainer.appendChild(btn);
+      });
+    })
+    .catch(() => {
+      slotsHint.textContent = 'No se pudo cargar los horarios. Intenta de nuevo.';
     });
 }
+
+function resetSubmit() {
+  msg.innerHTML = '';
+  if (!selectedEvent) {
+    submitBtn.disabled = true;
+    return;
+  }
+  const ev = config.event_types[selectedEvent];
+  if (ev.no_schedule) {
+    submitBtn.disabled = !(selectedAgency && destinationInput.value.trim());
+  } else {
+    submitBtn.disabled = !(selectedDate && selectedTime);
+  }
+}
+
+document.getElementById('nameInput').addEventListener('input', resetSubmit);
+document.getElementById('phoneInput').addEventListener('input', resetSubmit);
+destinationInput.addEventListener('input', resetSubmit);
+
+submitBtn.addEventListener('click', () => {
+  const name = document.getElementById('nameInput').value.trim();
+  const phone = document.getElementById('phoneInput').value.trim();
+  const address = document.getElementById('addressInput').value.trim();
+  const ev = config.event_types[selectedEvent];
+
+  if (!name || !phone) {
+    msg.innerHTML = '<div class="msg error">Completa nombre y teléfono.</div>';
+    return;
+  }
+
+  const payload = { event_type: selectedEvent, name, phone, address };
+
+  if (ev.no_schedule) {
+    const destination = destinationInput.value.trim();
+    if (!selectedAgency || !destination) {
+      msg.innerHTML = '<div class="msg error">Elige una agencia y escribe el destino.</div>';
+      return;
+    }
+    payload.agency = selectedAgency;
+    payload.destination = destination;
+  } else {
+    payload.date = selectedDate;
+    payload.time = selectedTime;
+  }
+
+  submitBtn.disabled = true;
+  msg.innerHTML = '';
+
+  fetch('/api/book', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+    .then(async (r) => {
+      let data;
+      try {
+        data = await r.json();
+      } catch (e) {
+        data = { error: 'El servidor respondió con un error inesperado. Intenta de nuevo en unos segundos.' };
+      }
+      return { status: r.status, data };
+    })
+    .then(({status, data}) => {
+      if (status !== 200) {
+        msg.innerHTML = `<div class="msg error">${data.error}</div>`;
+        submitBtn.disabled = false;
+        if (!ev.no_schedule && selectedEvent && selectedDate) loadSlots();
+        return;
+      }
+      msg.innerHTML = '<div class="msg success">¡Reserva confirmada! Te contactaremos para coordinar.</div>';
+      contactFields.style.display = 'none';
+      scheduleSection.style.display = 'none';
+      provinciaSection.style.display = 'none';
+      slotsContainer.innerHTML = '';
+      slotsHint.textContent = '';
+    })
+    .catch(() => {
+      msg.innerHTML = '<div class="msg error">No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.</div>';
+      submitBtn.disabled = false;
+    });
+});
 </script>
 </body>
 </html>
