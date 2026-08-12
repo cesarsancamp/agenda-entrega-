@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from datetime import datetime, timedelta
@@ -7,7 +8,8 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 import requests
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
+from openpyxl import Workbook
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -68,6 +70,8 @@ def init_db():
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS agency TEXT")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS destination TEXT")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dni TEXT")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS delivered BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS delivered_at TEXT")
     conn.commit()
     cur.close()
     conn.close()
@@ -281,6 +285,7 @@ def admin():
     cur.execute(
         """
         SELECT * FROM bookings
+        WHERE COALESCE(delivered, FALSE) = FALSE
         ORDER BY (booking_date < %s), booking_date, booking_time
         """,
         (today_str,),
@@ -300,6 +305,67 @@ def cancel_booking(booking_id):
     cur.close()
     conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/admin/deliver/<int:booking_id>", methods=["POST"])
+def mark_delivered(booking_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE bookings SET delivered = TRUE, delivered_at = %s WHERE id = %s",
+        (business_now().isoformat(), booking_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/admin/export")
+def export_delivered():
+    """Genera el Excel de entregados al vuelo desde la base de datos (no se guarda un
+    archivo en disco, porque en Render se perdería en cada redeploy)."""
+    config = load_config()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM bookings WHERE delivered = TRUE ORDER BY delivered_at")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Entregados"
+    ws.append([
+        "Fecha", "Hora", "Servicio", "Cliente", "Teléfono", "Dirección",
+        "Agencia", "Destino", "DNI", "Entregado el",
+    ])
+    for r in rows:
+        label = config["event_types"].get(r["event_type"], {}).get("label", r["event_type"])
+        ws.append([
+            r["booking_date"],
+            r["booking_time"],
+            label,
+            r["customer_name"],
+            r["phone"],
+            r["address"] or "",
+            r["agency"] or "",
+            r["destination"] or "",
+            r["dni"] or "",
+            r["delivered_at"] or "",
+        ])
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    filename = f"entregados_{business_now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 init_db()  # ensures the table exists both for `python3 app.py` and for gunicorn in production
