@@ -38,6 +38,9 @@
 
       <label for="destinationInput">3. ¿Hacia dónde va el envío?</label>
       <textarea id="destinationInput" rows="2" placeholder="Ciudad/provincia y agencia específica (ej. Olva Trujillo, oficina Jr. Los Pinos 123)"></textarea>
+
+      <label for="dniInput">4. DNI de quien recogerá el paquete</label>
+      <input type="text" id="dniInput" placeholder="Número de DNI" inputmode="numeric" maxlength="15">
     </div>
 
     <div id="contactFields" style="display:none;">
@@ -71,6 +74,7 @@ const scheduleSection = document.getElementById('scheduleSection');
 const provinciaSection = document.getElementById('provinciaSection');
 const agencyOptions = document.getElementById('agencyOptions');
 const destinationInput = document.getElementById('destinationInput');
+const dniInput = document.getElementById('dniInput');
 const slotsContainer = document.getElementById('slotsContainer');
 const slotsHint = document.getElementById('slotsHint');
 const contactFields = document.getElementById('contactFields');
@@ -105,6 +109,7 @@ eventOptions.forEach(opt => {
     selectedDate = null;
     selectedAgency = null;
     destinationInput.value = '';
+    dniInput.value = '';
     dateInput.value = '';
     slotsContainer.innerHTML = '';
     addressField.style.display = opt.dataset.requiresAddress === 'true' ? 'block' : 'none';
@@ -189,7 +194,7 @@ function resetSubmit() {
   }
   const ev = config.event_types[selectedEvent];
   if (ev.no_schedule) {
-    submitBtn.disabled = !(selectedAgency && destinationInput.value.trim());
+    submitBtn.disabled = !(selectedAgency && destinationInput.value.trim() && dniInput.value.trim());
   } else {
     submitBtn.disabled = !(selectedDate && selectedTime);
   }
@@ -198,6 +203,7 @@ function resetSubmit() {
 document.getElementById('nameInput').addEventListener('input', resetSubmit);
 document.getElementById('phoneInput').addEventListener('input', resetSubmit);
 destinationInput.addEventListener('input', resetSubmit);
+dniInput.addEventListener('input', resetSubmit);
 
 submitBtn.addEventListener('click', () => {
   const name = document.getElementById('nameInput').value.trim();
@@ -214,12 +220,14 @@ submitBtn.addEventListener('click', () => {
 
   if (ev.no_schedule) {
     const destination = destinationInput.value.trim();
-    if (!selectedAgency || !destination) {
-      msg.innerHTML = '<div class="msg error">Elige una agencia y escribe el destino.</div>';
+    const dni = dniInput.value.trim();
+    if (!selectedAgency || !destination || !dni) {
+      msg.innerHTML = '<div class="msg error">Elige una agencia, escribe el destino y el DNI de quien recogerá.</div>';
       return;
     }
     payload.agency = selectedAgency;
     payload.destination = destination;
+    payload.dni = dni;
   } else {
     payload.date = selectedDate;
     payload.time = selectedTime;
