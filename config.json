@@ -43,6 +43,14 @@
         "4": {"start": "11:00", "end": "18:00"},
         "5": {"start": "11:00", "end": "18:00"}
       }
+    },
+    "provincia": {
+      "label": "Envío a provincia",
+      "requires_address": false,
+      "no_schedule": true,
+      "agencies": ["Olva", "Shalom"],
+      "description": "Envíos a otras ciudades del Perú por agencia (Olva o Shalom). Se despachan todos los viernes."
     }
+    
   }
 }
