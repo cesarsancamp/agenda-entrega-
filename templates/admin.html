@@ -24,6 +24,7 @@
           <th>Dirección</th>
           <th>Agencia</th>
           <th>Destino</th>
+          <th>DNI</th>
           <th></th>
         </tr>
       </thead>
@@ -38,6 +39,7 @@
           <td>{{ b.address or '—' }}</td>
           <td>{{ b.agency or '—' }}</td>
           <td>{{ b.destination or '—' }}</td>
+          <td>{{ b.dni or '—' }}</td>
           <td><button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button></td>
         </tr>
         {% endfor %}
