@@ -23,6 +23,7 @@ def business_now():
     datetimes built from config.json's business_hours)."""
     return datetime.now(BUSINESS_TZ).replace(tzinfo=None)
 
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     # psycopg2 wants the "postgresql://" scheme; some providers hand out "postgres://"
@@ -63,6 +64,9 @@ def init_db():
         )
         """
     )
+    # Migración: agrega columnas nuevas para "Envío a provincia" sin tocar los datos existentes
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS agency TEXT")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS destination TEXT")
     conn.commit()
     cur.close()
     conn.close()
@@ -105,7 +109,7 @@ def get_slot_counts(conn, event_type_id, date_str):
     return {r["booking_time"]: r["c"] for r in rows}
 
 
-def send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str):
+def send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str, agency=None, destination=None):
     """Sends the notification over HTTPS via Resend's API instead of raw SMTP,
     because Render's free tier blocks outbound SMTP ports (25/465/587)."""
     api_key = os.environ.get("RESEND_API_KEY")
@@ -115,15 +119,17 @@ def send_booking_notification(config, event_type_id, name, phone, address, date_
         return  # notificaciones no configuradas todavía
 
     label = config["event_types"][event_type_id]["label"]
-    lines = [
-        f"Nueva reserva: {label}",
-        f"Fecha: {date_str}",
-        f"Hora: {time_str}",
-        f"Cliente: {name}",
-        f"Teléfono: {phone}",
-    ]
+    lines = [f"Nueva reserva: {label}", f"Fecha: {date_str}"]
+    if time_str:
+        lines.append(f"Hora: {time_str}")
+    lines.append(f"Cliente: {name}")
+    lines.append(f"Teléfono: {phone}")
     if address:
         lines.append(f"Dirección: {address}")
+    if agency:
+        lines.append(f"Agencia: {agency}")
+    if destination:
+        lines.append(f"Destino: {destination}")
 
     try:
         requests.post(
@@ -182,14 +188,49 @@ def api_book():
     name = (data.get("name") or "").strip()
     phone = (data.get("phone") or "").strip()
     address = (data.get("address") or "").strip()
+    agency = (data.get("agency") or "").strip()
+    destination = (data.get("destination") or "").strip()
     date_str = data.get("date")
     time_str = data.get("time")
 
     if event_type_id not in config["event_types"]:
         return jsonify({"error": "Tipo de evento inválido"}), 400
-    if not name or not phone or not date_str or not time_str:
+    event_type = config["event_types"][event_type_id]
+
+    if not name or not phone:
         return jsonify({"error": "Faltan datos obligatorios"}), 400
-    if config["event_types"][event_type_id]["requires_address"] and not address:
+
+    # --- Envío a provincia: sin fecha/hora, pide agencia y destino en su lugar ---
+    if event_type.get("no_schedule"):
+        valid_agencies = event_type.get("agencies", [])
+        if valid_agencies and agency not in valid_agencies:
+            return jsonify({"error": "Elige una agencia válida"}), 400
+        if not destination:
+            return jsonify({"error": "Escribe hacia dónde va el envío"}), 400
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO bookings
+                (event_type, customer_name, phone, address, booking_date, booking_time, created_at, agency, destination)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (event_type_id, name, phone, "", "Viernes", "", business_now().isoformat(), agency, destination),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        send_booking_notification(
+            config, event_type_id, name, phone, "", "Viernes", "", agency=agency, destination=destination
+        )
+        return jsonify({"ok": True})
+
+    # --- Flujo normal, con fecha y hora ---
+    if not date_str or not time_str:
+        return jsonify({"error": "Faltan datos obligatorios"}), 400
+    if event_type["requires_address"] and not address:
         return jsonify({"error": "La dirección es obligatoria para envío con motorizado"}), 400
 
     try:
@@ -203,7 +244,7 @@ def api_book():
 
     conn = get_db()
     counts = get_slot_counts(conn, event_type_id, date_str)
-    capacity = config["event_types"][event_type_id]["capacity_per_slot"]
+    capacity = event_type["capacity_per_slot"]
     if counts.get(time_str, 0) >= capacity:
         conn.close()
         return jsonify({"error": "Ese horario ya no está disponible, elige otro"}), 409
