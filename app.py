@@ -67,6 +67,7 @@ def init_db():
     # Migración: agrega columnas nuevas para "Envío a provincia" sin tocar los datos existentes
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS agency TEXT")
     cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS destination TEXT")
+    cur.execute("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dni TEXT")
     conn.commit()
     cur.close()
     conn.close()
@@ -109,7 +110,7 @@ def get_slot_counts(conn, event_type_id, date_str):
     return {r["booking_time"]: r["c"] for r in rows}
 
 
-def send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str, agency=None, destination=None):
+def send_booking_notification(config, event_type_id, name, phone, address, date_str, time_str, agency=None, destination=None, dni=None):
     """Sends the notification over HTTPS via Resend's API instead of raw SMTP,
     because Render's free tier blocks outbound SMTP ports (25/465/587)."""
     api_key = os.environ.get("RESEND_API_KEY")
@@ -130,6 +131,8 @@ def send_booking_notification(config, event_type_id, name, phone, address, date_
         lines.append(f"Agencia: {agency}")
     if destination:
         lines.append(f"Destino: {destination}")
+    if dni:
+        lines.append(f"DNI de quien recoge: {dni}")
 
     try:
         requests.post(
@@ -190,6 +193,7 @@ def api_book():
     address = (data.get("address") or "").strip()
     agency = (data.get("agency") or "").strip()
     destination = (data.get("destination") or "").strip()
+    dni = (data.get("dni") or "").strip()
     date_str = data.get("date")
     time_str = data.get("time")
 
@@ -200,30 +204,32 @@ def api_book():
     if not name or not phone:
         return jsonify({"error": "Faltan datos obligatorios"}), 400
 
-    # --- Envío a provincia: sin fecha/hora, pide agencia y destino en su lugar ---
+    # --- Envío a provincia: sin fecha/hora, pide agencia, destino y DNI de quien recoge ---
     if event_type.get("no_schedule"):
         valid_agencies = event_type.get("agencies", [])
         if valid_agencies and agency not in valid_agencies:
             return jsonify({"error": "Elige una agencia válida"}), 400
         if not destination:
             return jsonify({"error": "Escribe hacia dónde va el envío"}), 400
+        if not dni:
+            return jsonify({"error": "Escribe el DNI de la persona que recogerá el paquete"}), 400
 
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO bookings
-                (event_type, customer_name, phone, address, booking_date, booking_time, created_at, agency, destination)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (event_type, customer_name, phone, address, booking_date, booking_time, created_at, agency, destination, dni)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (event_type_id, name, phone, "", "Viernes", "", business_now().isoformat(), agency, destination),
+            (event_type_id, name, phone, "", "Viernes", "", business_now().isoformat(), agency, destination, dni),
         )
         conn.commit()
         cur.close()
         conn.close()
 
         send_booking_notification(
-            config, event_type_id, name, phone, "", "Viernes", "", agency=agency, destination=destination
+            config, event_type_id, name, phone, "", "Viernes", "", agency=agency, destination=destination, dni=dni
         )
         return jsonify({"ok": True})
 
