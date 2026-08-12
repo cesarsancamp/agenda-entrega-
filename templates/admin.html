@@ -9,7 +9,7 @@
 <body>
 <div class="container" style="max-width: 1000px;">
   <h1>Panel de reservas</h1>
-  <p class="subtitle">{{ bookings|length }} reserva(s) registrada(s). <a href="/admin">Actualizar</a> · <a href="/">Ir al formulario público</a></p>
+  <p class="subtitle">{{ bookings|length }} reserva(s) pendiente(s). <a href="/admin">Actualizar</a> · <a href="/">Ir al formulario público</a> · <a href="/admin/export">Descargar Excel de entregados</a></p>
 
   <div class="card">
     {% if bookings %}
@@ -40,7 +40,10 @@
           <td>{{ b.agency or '—' }}</td>
           <td>{{ b.destination or '—' }}</td>
           <td>{{ b.dni or '—' }}</td>
-          <td><button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button></td>
+          <td>
+            <button class="deliver-btn" onclick="markDelivered({{ b.id }})">Entregado</button>
+            <button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -55,6 +58,15 @@
 function cancelBooking(id) {
   if (!confirm('¿Cancelar esta reserva?')) return;
   fetch(`/admin/cancel/${id}`, {method: 'POST'})
+    .then(r => r.json())
+    .then(() => {
+      document.getElementById(`row-${id}`).remove();
+    });
+}
+
+function markDelivered(id) {
+  if (!confirm('¿Marcar esta reserva como entregada? Desaparecerá de esta lista y quedará guardada en el Excel de entregados.')) return;
+  fetch(`/admin/deliver/${id}`, {method: 'POST'})
     .then(r => r.json())
     .then(() => {
       document.getElementById(`row-${id}`).remove();
