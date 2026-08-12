@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="container" style="max-width: 800px;">
+<div class="container" style="max-width: 1000px;">
   <h1>Panel de reservas</h1>
   <p class="subtitle">{{ bookings|length }} reserva(s) registrada(s). <a href="/admin">Actualizar</a> · <a href="/">Ir al formulario público</a></p>
 
@@ -22,6 +22,8 @@
           <th>Cliente</th>
           <th>Teléfono</th>
           <th>Dirección</th>
+          <th>Agencia</th>
+          <th>Destino</th>
           <th></th>
         </tr>
       </thead>
@@ -29,11 +31,13 @@
         {% for b in bookings %}
         <tr id="row-{{ b.id }}">
           <td>{{ b.booking_date }}</td>
-          <td>{{ b.booking_time }}</td>
+          <td>{{ b.booking_time or '—' }}</td>
           <td><span class="tag {{ b.event_type }}">{{ config.event_types[b.event_type].label }}</span></td>
           <td>{{ b.customer_name }}</td>
           <td>{{ b.phone }}</td>
           <td>{{ b.address or '—' }}</td>
+          <td>{{ b.agency or '—' }}</td>
+          <td>{{ b.destination or '—' }}</td>
           <td><button class="cancel-btn" onclick="cancelBooking({{ b.id }})">Cancelar</button></td>
         </tr>
         {% endfor %}
