@@ -157,6 +157,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 
 .tag.recojo { background: #dbeafe; color: #1d4ed8; }
 .tag.envio { background: #fef3c7; color: #b45309; }
+.tag.provincia { background: #ede9fe; color: #6d28d9; }
 
 .cancel-btn {
   border: 1px solid var(--error);
