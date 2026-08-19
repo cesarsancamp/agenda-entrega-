@@ -10,8 +10,8 @@
       "requires_address": false,
       "description": "El cliente recoge su pedido en el punto Real Plaza Salaverry en el sotano 1, frente a Claro.",
       "business_hours": {
-        "2": {"start": "18:00", "end": "19:30"},
-        "3": {"start": "18:00", "end": "19:30"}
+        "2": {"start": "18:00", "end": "19:30"}
+        
       }
     },
     "recojo_oficina": {
